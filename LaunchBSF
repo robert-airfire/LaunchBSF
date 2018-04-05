@@ -1,0 +1,355 @@
+#!/usr/bin/perl
+
+use lib ".";
+use lib "/usr/local/lib/share";
+use lib "/home/bluesky/bluesky_3.5.1/bluesky";
+
+use LaunchArchiveRsync;
+use LaunchWaitARL;
+use LaunchLog;
+
+# check simple usage
+die("usage: $0 RUN_NAME hour|ymdh\n".
+    "valid run names: \n".
+    "\t\tNAM84_08PP NAM84_15PP NAM36PP NAM4kmPP\n".
+    "\t\tGFS192PP\n".
+    "\t\tFL4kmPP\n".
+    "\t\tAK12kmPP\n".
+    "\t\tFW1km_00PP FW1km_06PP FW1km_12PP FW1km_18PP \n".
+    "\t\tDRI2kmPP DRI6kmPP\n".
+    "\t\tNWRMC4kmPP NWRMC4o3kmPP NWRMC4o3kmPP_NorthStarPP NWRMC4o3km_Libby NWRMC4o3km_Bend\n")
+    unless (scalar(@ARGV) == 2);
+
+# get the run name
+my $name = shift;
+
+# get hour/ymdh arg
+my $arg  = shift;
+
+# current date (UTC)
+my $ymd  = `date -u +%Y%m%d`;
+chomp $ymd;
+
+# if args is < 24 assume it is an hour not a date time string
+my $ymdh = ($arg < 24) ? sprintf("%08d%02d",$ymd,$arg) :
+                          $arg;
+
+# define bluesky working dirs currently in use
+my $bsdir = "/home/bluesky/bluesky_3.5.1/bluesky";
+my $bs_archive  = "/bluesky/output_archive";
+
+# ####################################################################
+# list of possible runs
+#   RUN_NAME => {
+#
+# 	bsdir => the BS run directory (added by default at end if not present)
+#	ymdh => the date to run       (added by default at end if not present)
+#
+# flags now come in two flavors....typically 
+#   UPPER case flags represent an action  (e.g., 'L' launches a bluesky run)
+#   lower case flags represent a 'switch' (essentially turn on something if
+#        present, e.g., 'f' turn on the sending of failure email)
+#
+# order of flags doesn't matter...it is solely determined by the checks at
+# the end of end of this section (see bottom of file).
+#
+# should be defined for all runs with "L" flag
+# 	bs_options => bluesky runtime options
+#	ini => the bluesky ini
+#
+# should be defined for all "B", "S" and/or "R" flags
+#	outdir => the output data directory
+#
+# should be defined for all "B" or "A" flags
+#	archive => the location of the runs output (inside outdir)
+#
+# should be defined for all with "A" and/or "R" flags
+#	archivelink => if different than archive, it is
+#		a link used to name the tar ball of the archive
+#		and its contents...mostly to facilitate unpacking
+#		at the dest site
+#	suffix => added to the tar ball name (not really needed
+#		anymore)
+#	dest => destination directory on vacuum
+#
+# should be defined for all "B" and/or "S" flags
+#       archivelink2 => like archivelink above except different format
+#                and dest (only default) used
+#
+# UPPER CASE FLAGS
+#	flags => 'L' = Launch
+#	         'A' = Archive
+#		 'R' = Rsync
+#                'B' = New Archive (replaces A above for most runs)
+#                'S' = New Rsync   (replaces R above for most runs)
+#                'X' = do nothing
+#                'W' = rename pdout to pdin & add timestamp to filename
+#		should make as command line args to make it easier
+#		to just rerun or to retry the rsync etc etc.
+#
+# LOWER CASE FLAGS
+#                'f' = turn on sending of failure email
+#                'l' = turn on status logging (this is independent of whither
+#                      or not logging is turned on in a bluesky run)
+#
+# the full hash is passed to the subs in LaunchArchiveRsync
+#
+# ####################################################################
+my %launchlist = (
+                GFS192PP => {
+		   bs_options => "-v -U HYSPLIT=v7 -Kno-cleanup",
+#                          ini => "GFS192-SF2_Hysplit_initd0_delt-15_khmax24",
+                          ini => "GFS192-SF2_Hysplit_initd0_delt-15_khmax24_mergeCanada",
+                       outdir => "$bsdir/output/GFS192-SF2",
+                      archive => "Output_$ymdh-hysplit_initd0_delt-15_khmax24.0",
+                 archivelink2 => "hysplit-pp_GFS-0.15deg_$ymdh",
+			flags => "lCLBS",
+                },
+
+               AK12kmPP => {
+                   bs_options => "-H 48 -v -U HYSPLIT=v7 -Kno-cleanup",
+                          ini => "AK12km-SF2_Hysplit-08_initd0_delt-5_khmax24",
+                       outdir => "$bsdir/output/AK12km-SF2",
+                      archive => "Output_$ymdh-0.08deg_hysplit_initd0_delt-5_khmax24.0",
+                 archivelink2 => "hysplit-pp_AK-12km_$ymdh",
+                        flags => "lCLBS",
+                },
+		
+		NAM84_08PP => {
+		   bs_options => "-H 72 -v -U HYSPLIT=v7 -Kno-cleanup",
+			  ini => "NAM84-SF2_Hysplit-08_initd0_delt-5_khmax24",
+		       outdir => "$bsdir/output/NAM84-SF2",
+		      archive => "Output_$ymdh-0.08deg_hysplit_initd0_delt-5_khmax24.0",
+                 archivelink2 => "hysplit-pp_NAM84-0.08deg_$ymdh",
+			flags => "lCLBS",
+		},
+		
+		NAM84_15PP => {
+		   bs_options => "-H 72 -v -U HYSPLIT=v7 -Kno-cleanup",
+			  ini => "NAM84-SF2_Hysplit-15_initd0_delt-15_khmax24",
+#                         ini => "NAM84-0.15deg_hysplit-pp.ini",
+		       outdir => "$bsdir/output/NAM84-SF2",
+		      archive => "Output_$ymdh-0.15deg_hysplit_initd0_delt-15_khmax24.0",
+                 archivelink2 => "hysplit-pp_NAM84-0.15deg_$ymdh",
+			flags => "lCLBS",
+		},
+		
+		NAM36PP => {
+		   bs_options => "-v -U HYSPLIT=v7 -Kno-cleanup",
+			  ini => "NAM36-SF2_Hysplit_initd0_delt-5_khmax24",
+		       outdir => "$bsdir/output/NAM36-SF2",
+		      archive => "Output_$ymdh-12km_hysplit_initd0_delt-5_khmax24.0",
+                 archivelink2 => "hysplit-pp_NAM36-0.08deg_$ymdh",
+			flags => "lCLBS",
+		},
+
+		NAM4kmPP => {
+		   bs_options => "-v -U HYSPLIT=v7 -Kno-cleanup",
+			  ini => "NAM4km-SF2_Hysplit_initd0_delt-3_khmax24",
+		       outdir => "$bsdir/output/NAM4km-SF2",
+		      archive => "Output_$ymdh-4km_hysplit_initd0_delt-3_khmax24.0",
+                 archivelink2 => "hysplit-pp_NAM-4km_$ymdh",
+			flags => "lCLBS",
+		},
+		
+		DRI2kmPP => {
+		   bs_options => "-v -U HYSPLIT=v7 -Kno-cleanup",
+			  ini => "DRI2km-SF2_Hysplit_initd0_delt-2_khmax24",
+		       outdir => "$bsdir/output/DRI2km-SF2",
+		      archive => "Output_$ymdh-hysplit_initd0_delt-2_khmax24.0",
+                 archivelink2 => "hysplit-pp_CANSAC-2km_$ymdh",
+			flags => "lCLBS",
+			#flags => "S",
+		},
+
+		DRI6kmPP => {
+		   bs_options => "-v -U HYSPLIT=v7 -Kno-cleanup",
+			  ini => "DRI6km-SF2_Hysplit_initd0_delt-5_khmax24",
+		       outdir => "$bsdir/output/DRI6km-SF2",
+		      archive => "Output_$ymdh-hysplit_initd0_delt-5_khmax24.0",
+                 archivelink2 => "hysplit-pp_CANSAC-6km_$ymdh",
+			flags => "lCLBS",
+		},
+
+		NWRMC4o3kmPP => {
+                   bs_options => "-v -Kno-cleanup",
+                          ini => "NWRMC4o3km-SF2_Hysplit_expanded",
+                       outdir => "$bsdir/output/NWRMC4o3km-SF2",
+                      archive => "Output_$ymdh-hysplit_initd0_delt-2_khmax24.0",
+                 archivelink2 => "hysplit-pp_PNW-1.33km_$ymdh\_forecast",
+                        flags => "lCLBS",
+                }, 
+
+		
+		NWRMC4o3km_Libby => {
+                   bs_options => "-v -U HYSPLIT=v7 -Kno-cleanup",
+                          ini => "NWRMC4o3km-SF2_Hysplit_initd0_Libby",
+                       outdir => "$bsdir/output/NWRMC4o3km-SF2",
+                      archive => "Output_$ymdh-hysplit_initd0_Libby.0",
+                 archivelink2 => "hysplit-pp_PNW-4o3km-Libby_$ymdh",
+                        flags => "lCLBS",
+                }, 
+
+                   NWRMC4kmPP => {
+                   bs_options => "-v -Kno-cleanup",
+                          ini => "NWRMC4km-SF2_Hysplit_initd0_delt-3_khmax24",
+                       outdir => "$bsdir/output/NWRMC4km-SF2",
+                      archive => "Output_$ymdh-hysplit_initd0_delt-3_khmax24.0",
+                 archivelink2 => "hysplit-pp_PNW-4km_$ymdh\_forecast",
+                        flags => "lCLBS",
+                },
+
+                      FL4kmPP => {
+		   bs_options => "-v -U HYSPLIT=v7 -Kno-cleanup",
+                          ini => "FL4km-SF2_Hysplit_initd0_delt-3_khmax24",
+                       outdir => "$bsdir/output/FL4km-SF2",
+                      archive => "Output_$ymdh-hysplit_initd0_delt-3_khmax24.0",
+                 archivelink2 => "hysplit-pp_FL-4km_$ymdh",
+			flags => "lCLBS",
+                },
+
+                   FW1km_00PP => {
+                   bs_options => "-v -U HYSPLIT=v7 -Kno-cleanup",
+                          ini => "FW1km_00Z_initd0_khmax24",
+                       outdir => "$bsdir/output/FW1km",
+                      archive => "Output_$ymdh-initd0_khmax24.0",
+                 archivelink2 => "hysplit-pp_FW00Z-1km_$ymdh",
+                        flags => "lCLBS",
+                },
+
+            FW1km_00_StoutsPP => {
+                   bs_options => "-v -U HYSPLIT=v7 -Kno-cleanup",
+                          ini => "FW1km_00Z_initd0_StoutsCreekFire",
+                       outdir => "$bsdir/output/FW1km",
+                      archive => "Output_$ymdh-initd0_StoutsCreekFire.0",
+                 archivelink2 => "hysplit-pp_FW00Z-1km-StoutsCreekFire_$ymdh",
+                        flags => "lCLBS",
+                },
+
+                   FW1km_06PP => {
+                   bs_options => "-v -Kno-cleanup",
+                          ini => "FW1km_06Z_initd0_khmax24",
+                       outdir => "$bsdir/output/FW1km",
+                      archive => "Output_$ymdh-initd0_khmax24.0",
+                 archivelink2 => "hysplit-pp_FW06Z-1km_$ymdh",
+                        #flags => "lCLBS",
+                        flags => "lCLBS",
+                },
+
+          FW1km_06_BaldKnobPP => {
+                   bs_options => "-v -U HYSPLIT=v7 -Kno-cleanup",
+                          ini => "FW1km_06Z_initd0_BaldKnob",
+                       outdir => "$bsdir/output/FW1km",
+                      archive => "Output_$ymdh-initd0_BaldKnob.0",
+                 archivelink2 => "hysplit-pp_FW06Z-1km-BaldKnob_$ymdh",
+                        flags => "lCLBS",
+                },
+
+                   FW1km_12PP => {
+                   bs_options => "-v -U HYSPLIT=v7 -Kno-cleanup",
+                          ini => "FW1km_12Z_initd0_khmax24",
+                       outdir => "$bsdir/output/FW1km",
+                      archive => "Output_$ymdh-initd0_khmax24.0",
+                 archivelink2 => "hysplit-pp_FW12Z-1km_$ymdh",
+                        flags => "lCLBS",
+                },
+
+                   FW1km_18PP => {
+                   bs_options => "-v -U HYSPLIT=v7 -Kno-cleanup",
+                          ini => "FW1km_18Z_initd0_khmax24",
+                       outdir => "$bsdir/output/FW1km",
+                      archive => "Output_$ymdh-initd0_khmax24.0",
+                 archivelink2 => "hysplit-pp_FW18Z-1km_$ymdh",
+                        flags => "lCLBS",
+                },
+
+        SF2_BSFemissions84hrs => {
+                   bs_options => "-v",
+                          ini => "SF2_BSFemissions84hrs",
+                       outdir => "$bsdir/output/SF2_BSFemissions84hrs",
+                      archive => "Output_$ymdh-emissions.0",
+                  archivelink => "Output_$ymdh.0",
+                       suffix => "SF2_BSFemissions84hrs",
+                         dest => "$bs_archive/SF2_BSFemissions84hrs",
+                        flags => "LAR",
+                },
+
+		NWRMC4o3kmPP_NorthStarPP => {
+                   bs_options => "-v -U HYSPLIT=v7 -Kno-cleanup",
+                          ini => "NWRMC4o3km-SF2_Hysplit_initd0_NorthStar",
+                       outdir => "$bsdir/output/NWRMC4o3km-SF2",
+                      archive => "Output_$ymdh-hysplit_initd0_NorthStar.0",
+                 archivelink2 => "hysplit-pp_PNW-1.33km-NorthStar_$ymdh",
+#                       flags => "lCLBS",
+                        flags => "lLFBS",
+                },
+
+		NWRMC4o3kmPP_BendPP => {
+#                   bs_options => "-v -U HYSPLIT=v7 -Kno-cleanup",
+                   bs_options => "-v -Kno-cleanup",
+                          ini => "NWRMC4o3km-SF2_Hysplit_initd0_Bend",
+                       outdir => "$bsdir/output/NWRMC4o3km-SF2",
+                      archive => "Output_$ymdh-hysplit_initd0_Bend.0",
+                 archivelink2 => "hysplit-pp_PNW-1.33km-Bend$ymdh",
+                        flags => "lCLBS",
+#                        flags => "lLFBS",
+                },
+
+	);
+
+# check to make sure run name is valid
+my $status = exists($launchlist{$name});
+print "status: $status\n";
+die("$0: $name not recognized\n") unless ( exists($launchlist{$name}) );
+
+# add bsdir and ymdh to launchlist unless defined already (to override default)
+# and add name field to the launchlist
+$launchlist{$name}{bsdir} = $bsdir unless ( exists($launchlist{$name}{bsdir}) );
+$launchlist{$name}{ymdh}  = $ymdh  unless ( exists($launchlist{$name}{ymdh}) );
+$launchlist{$name}{name}  = $name;
+$launchlist{$name}{log}   = "log/$launchlist{$name}{ini}-$ymdh.log";
+
+# define a metsource var which is a simplified version of the name (minus
+# stuff like PP and what not....this shortened name is also used to determine
+# the routine that is used to check for arl data (if flag is set to do so)
+my $temp = $name;
+$temp =~ s/PP$//;
+my $metsource = ($temp =~ /_/ ) ? (split(/_/,$temp))[0] : $temp;
+$launchlist{$name}{metsource} = $metsource;
+
+# ##########################################################################
+# what do we do?
+# A => Archive (old style...eg, Output_yyyymmddhh_suffix.tgz )
+# B => Archive (new style...eg, hysplit-puff|pp_MET_yyyymmddhh.tgz)
+# C => check for availablity of ARL files before launching
+# L => Launch BS
+# R => Rsync (old location on vacuum, ie, /bluesky/output_archive/{dest})
+# S => Rsync (new location on vacuum, ie, /bluesky/output_archive/Incoming)
+# X => Do Nothing (for runs that have been turned off but kept in the list)
+#
+# order of the actions: X C L A B R S
+#
+# f => turn on sending of failure email
+# l => turn on status logging
+#
+# TODO I should change this to command line args for overriding defaults
+# TODO add some sort of less arbitrary ordering scheme
+# TODO use an ini for each run instead of the big has above
+#
+my $args = $launchlist{$name};
+
+# send a start message to the logger (LogMessage takes care of determining 
+# if it should be sent based on the 'l' flat
+LogMessage($args,"Launching BlueSky Run","Start","Good","");
+
+warn("$0: not doing anything for $name\n\tupdate flags if necessary\n")
+                        if ($$args{flags} =~ /X/);
+WaitARL($args)          if ($$args{flags} =~ /C/);
+LaunchBSF($args)        if ($$args{flags} =~ /L/);
+ArchiveBSF($args)       if ($$args{flags} =~ /A/);
+ArchiveBSF2($args)      if ($$args{flags} =~ /B/);
+RsyncBSF($args)         if ($$args{flags} =~ /R/);
+RsyncBSF2($args)        if ($$args{flags} =~ /S/);
+
+# Finished send a succesful ending message
+LogMessage($args,"Finished LaunchBSF Script","Finish","Good","");
